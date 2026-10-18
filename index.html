@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Traductor Português ⇄ Español</title>
+<style>
+  :root { --pt:#1b8a3a; --es:#d9381e; --bg:#f6f4ef; --ink:#222; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--ink); padding:16px; max-width:640px; margin-inline:auto; }
+  h1 { font-size:1.4rem; text-align:center; margin:8px 0 16px; }
+  .big { display:block; width:100%; border:0; border-radius:20px; padding:26px 12px; margin-bottom:14px;
+         font-size:1.4rem; font-weight:700; color:#fff; cursor:pointer; line-height:1.3; }
+  .big small { display:block; font-size:1rem; font-weight:400; opacity:.9; }
+  #btnPT { background:var(--pt); }
+  #btnES { background:var(--es); }
+  .big.listening { animation:pulse 1s infinite; outline:6px solid #ffd23f; }
+  @keyframes pulse { 50% { transform:scale(1.02); } }
+  .card { background:#fff; border-radius:16px; padding:14px 16px; margin-bottom:12px; box-shadow:0 1px 4px #0002; }
+  .card h2 { margin:0 0 6px; font-size:.85rem; text-transform:uppercase; letter-spacing:.05em; color:#666; }
+  .card p { margin:0; font-size:1.5rem; min-height:2em; }
+  .row { display:flex; gap:10px; margin-bottom:12px; }
+  .row button { flex:1; padding:16px; font-size:1.1rem; border-radius:14px; border:2px solid #333; background:#fff; cursor:pointer; }
+  #status { text-align:center; min-height:1.5em; font-size:1.1rem; margin-bottom:10px; }
+  details { margin-top:14px; }
+  textarea { width:100%; font-size:1.2rem; padding:10px; border-radius:10px; border:1px solid #aaa; }
+  .small-row { display:flex; gap:8px; margin-top:8px; }
+  .small-row button { flex:1; padding:12px; font-size:1rem; border-radius:10px; border:0; color:#fff; cursor:pointer; }
+</style>
+</head>
+<body>
+<h1>🇧🇷 Português ⇄ Español 🇪🇸</h1>
+
+<button class="big" id="btnPT">🎤 Escuchar PORTUGUÉS<small>Habla el brasileño → lo oigo en español</small></button>
+<button class="big" id="btnES">🎤 Hablar ESPAÑOL<small>Hablo yo → se oye en portugués</small></button>
+
+<div id="status"></div>
+
+<div class="card"><h2 id="origLabel">Lo que se dijo</h2><p id="orig">—</p></div>
+<div class="card"><h2 id="transLabel">Traducción</h2><p id="trans">—</p></div>
+
+<div class="row">
+  <button id="btnRepeat">🔊 Repetir</button>
+  <button id="btnStop">⏹ Parar</button>
+</div>
+
+<details>
+  <summary>✍️ Escribir en vez de hablar</summary>
+  <textarea id="typed" rows="3" placeholder="Escribe aquí..."></textarea>
+  <div class="small-row">
+    <button style="background:var(--pt)" data-from="pt">Portugués → Español</button>
+    <button style="background:var(--es)" data-from="es">Español → Portugués</button>
+  </div>
+</details>
+
+<script>
+const LANG = {
+  pt: { rec:'pt-BR', voice:'pt', name:'Portugués' },
+  es: { rec:'es-ES', voice:'es', name:'Español' }
+};
+const $ = id => document.getElementById(id);
+const status = t => $('status').textContent = t;
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recog = null, lastTranslation = '', lastTo = 'es';
+
+if (!SR) status('⚠️ Este navegador no escucha voz. Usa Chrome (Android/PC) o Safari (iPhone).');
+
+function setListening(btn) {
+  $('btnPT').classList.toggle('listening', btn === 'pt');
+  $('btnES').classList.toggle('listening', btn === 'es');
+}
+
+function listen(from) {
+  if (!SR) return;
+  stopAll();
+  const to = from === 'pt' ? 'es' : 'pt';
+  recog = new SR();
+  recog.lang = LANG[from].rec;
+  recog.interimResults = true;
+  recog.continuous = false;
+  let finalText = '';
+  recog.onstart = () => { setListening(from); status('👂 Escuchando ' + LANG[from].name + '...'); };
+  recog.onresult = e => {
+    let t = '';
+    for (const r of e.results) t += r[0].transcript;
+    finalText = t;
+    $('orig').textContent = t;
+  };
+  recog.onerror = e => {
+    setListening(null);
+    status(e.error === 'not-allowed' ? '⚠️ Permite el micrófono en el navegador.' :
+           e.error === 'no-speech' ? 'No oí nada, intenta otra vez.' : '⚠️ Error: ' + e.error);
+  };
+  recog.onend = () => {
+    setListening(null);
+    if (finalText.trim()) translateAndSpeak(finalText.trim(), from, to);
+  };
+  recog.start();
+}
+
+async function translateAndSpeak(text, from, to) {
+  $('orig').textContent = text;
+  $('origLabel').textContent = 'Se dijo en ' + LANG[from].name;
+  $('transLabel').textContent = 'Traducción al ' + LANG[to].name.toLowerCase();
+  status('⏳ Traduciendo...');
+  try {
+    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text) + '&langpair=' + from + '|' + to;
+    const res = await fetch(url);
+    const data = await res.json();
+    const out = data.responseData.translatedText;
+    $('trans').textContent = out;
+    lastTranslation = out; lastTo = to;
+    status('');
+    speak(out, to);
+  } catch (err) {
+    status('⚠️ No pude traducir. ¿Hay internet?');
+  }
+}
+
+function speak(text, to) {
+  if (!text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = LANG[to].rec;
+  const v = speechSynthesis.getVoices().find(v => v.lang.replace('_','-').toLowerCase().startsWith(u.lang.toLowerCase())) ||
+            speechSynthesis.getVoices().find(v => v.lang.toLowerCase().startsWith(LANG[to].voice));
+  if (v) u.voice = v;
+  u.rate = 0.95;
+  u.onstart = () => status('🔊 Hablando en ' + LANG[to].name + '...');
+  u.onend = () => status('');
+  speechSynthesis.speak(u);
+}
+
+function stopAll() {
+  if (recog) { try { recog.abort(); } catch (e) {} recog = null; }
+  speechSynthesis.cancel();
+  setListening(null);
+}
+
+$('btnPT').onclick = () => listen('pt');
+$('btnES').onclick = () => listen('es');
+$('btnRepeat').onclick = () => speak(lastTranslation, lastTo);
+$('btnStop').onclick = () => { stopAll(); status(''); };
+document.querySelectorAll('[data-from]').forEach(b => b.onclick = () => {
+  const from = b.dataset.from, text = $('typed').value.trim();
+  if (text) translateAndSpeak(text, from, from === 'pt' ? 'es' : 'pt');
+});
+speechSynthesis.onvoiceschanged = () => {};
+</script>
+</body>
+</html>
